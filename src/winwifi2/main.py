@@ -7,8 +7,8 @@ import tempfile
 import time
 from typing import Callable, List, Optional
 
-from ctypes import *
-from ctypes.wintypes import *
+from ctypes import POINTER, Structure, c_byte, c_ulong, c_char, c_wchar, c_uint, c_void_p, byref, pointer, windll, cast, FormatError
+from ctypes.wintypes import DWORD, HANDLE
 from comtypes import GUID
 
 
@@ -56,10 +56,17 @@ class WindllWlanApi:
 
     def wlan_open_handle(self, client_version=2):
         f = self.wlan_func_generator(self.native_wifi.WlanOpenHandle,
-                                     [DWORD, c_void_p, POINTER(DWORD), POINTER(HANDLE)],
-                                     [DWORD])
-
+                                        [DWORD, c_void_p, POINTER(DWORD), POINTER(HANDLE)],
+                                        [DWORD])
+            
         return f(client_version, None, byref(self._nego_version), byref(self._handle))
+
+    def wlan_close_handle(self, client_version=2):
+        f = self.wlan_func_generator(self.native_wifi.WlanCloseHandle,
+                                        [POINTER(HANDLE), c_void_p],
+                                        [DWORD])
+
+        return f(self._handle, None)
 
     def wlan_enum_interfaces(self):
         f = self.wlan_func_generator(self.native_wifi.WlanEnumInterfaces,
@@ -74,8 +81,14 @@ class WindllWlanApi:
                                  [DWORD])
 
         return f(self._handle, iface_guid, None, None, None)
+    
+    def wlan_free_interface_list(self):
+        f = self.wlan_func_generator(self.native_wifi.WlanFreeMemory,
+                                     [POINTER(WLAN_INTERFACE_INFO_LIST)],
+                                     [DWORD])
+        return f(self._ifaces)
 
-    def get_interfaes(self):
+    def get_interfaces(self):
         interfaces = []
         _interfaces = cast(self._ifaces.contents.InterfaceInfo,
                            POINTER(WLAN_INTERFACE_INFO))
@@ -146,18 +159,28 @@ class WinWiFi:
     @classmethod
     def scan(cls, callback: Callable = lambda x: None) -> List['WiFiAp']:
         win_dll_wlan = WindllWlanApi()
-        if win_dll_wlan.wlan_open_handle() is not win_dll_wlan.SUCCESS:
-            raise RuntimeError('Wlan dll open handle failed !')
+        try:
+            result = win_dll_wlan.wlan_open_handle() 
+            if result is not win_dll_wlan.SUCCESS:
 
-        if win_dll_wlan.wlan_enum_interfaces() is not win_dll_wlan.SUCCESS:
-            raise RuntimeError('Wlan dll enum interfaces failed !')
+                raise RuntimeError(f'Wlan dll open handle failed ! {FormatError(result)}')
 
-        wlan_interfaces = win_dll_wlan.get_interfaes()
-        if len(wlan_interfaces) == 0:
-            raise RuntimeError('Do not get any wlan interfaces !')
+            result = win_dll_wlan.wlan_enum_interfaces()
+            if result is not win_dll_wlan.SUCCESS:
+                raise RuntimeError(f'Wlan dll enum interfaces failed ! {FormatError(result)}')
 
-        win_dll_wlan.wlan_scan(byref(wlan_interfaces[0]['guid']))
-        time.sleep(5)
+            wlan_interfaces = win_dll_wlan.get_interfaces()
+            if len(wlan_interfaces) == 0:
+                raise RuntimeError('Did not get any wlan interfaces !')
+            
+            win_dll_wlan.wlan_free_interface_list()
+            
+            for interface in wlan_interfaces:
+                win_dll_wlan.wlan_scan(byref(interface['guid']))
+                time.sleep(5)
+
+        finally:
+            win_dll_wlan.wlan_close_handle()
 
         cp: subprocess.CompletedProcess = cls.netsh(['wlan', 'show', 'networks', 'mode=bssid'])
         callback(cp.stdout)
