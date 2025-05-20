@@ -18,12 +18,12 @@ with open(os.path.join(here, 'README.md'), encoding='utf-8') as f:
     long_description = f.read()
 
 setuptools.setup(
-    name='winwifi',
+    name='winwifi2',
 
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version='1.0.5',
+    version='1.0.666',
 
     description='A Windows Wi-Fi CLI utility',
     long_description=long_description,
